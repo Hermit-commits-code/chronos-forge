@@ -26,14 +26,15 @@ type TimeEntry struct {
 
 func CORSMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		// Allow requests from your Next.js port
+		// This is the "Master Key" for development
 		c.Writer.Header().Set("Access-Control-Allow-Origin", "http://localhost:3001")
 		c.Writer.Header().Set("Access-Control-Allow-Credentials", "true")
+		// We add 'Content-Type' explicitly here to ensure the browser is happy
 		c.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, Authorization, accept, origin, Cache-Control, X-Requested-With")
 		c.Writer.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS, GET, PUT")
 
-		// If it's the "polite" preflight request, stop here and return 204 (No Content)
 		if c.Request.Method == "OPTIONS" {
+			// A 204 means "I'm okay with this, proceed with the actual POST"
 			c.AbortWithStatus(204)
 			return
 		}
@@ -43,58 +44,51 @@ func CORSMiddleware() gin.HandlerFunc {
 }
 
 // 3. THE ROUTER ENGINE (LOGIC)
-// We separate the 'Routes' from the 'Server Start' so we can test it later.
 func SetupRouter(db *gorm.DB) *gin.Engine {
-	// Initialize Gin with default middleware (Logger and Recovery)
+	// 1. PERMANENT WARNING FIX: Tell Gin we are in a local dev environment
 	r := gin.Default()
+	
+	// This silences the "Trusted Proxies" warning permanently
+	r.SetTrustedProxies(nil) 
 
 	r.Use(CORSMiddleware())
 
-	// ROUTE: POST /api/time/toggle
+	// TOGGLE ROUTE
 	r.POST("/api/time/toggle", func(c *gin.Context) {
 		var input struct {
 			Project  string `json:"project"`
 			Category string `json:"category"`
 		}
-
-		// Bind the incoming JSON from the Mobile App/Frontend to our 'input' struct
 		if err := c.ShouldBindJSON(&input); err != nil {
-			c.JSON(400, gin.H{"error": "Invalid input data"})
+			c.JSON(400, gin.H{"error": "Invalid input"})
 			return
 		}
-
 		now := time.Now()
-
-		// THE ATOMIC TRANSACTION
-		// We use a transaction to ensure 'Stop' and 'Start' happen together or not at all.
 		err := db.Transaction(func(tx *gorm.DB) error {
-			
-			// FIX: We use "\"end\"" to escape the Postgres reserved keyword.
-			// This tells Postgres: "Update the column named 'end', don't end the query!"
 			if err := tx.Model(&TimeEntry{}).Where("\"end\" IS NULL").Update("end", now).Error; err != nil {
 				return err
 			}
-
-			// Create the new entry for the project you just clicked.
-			newEntry := TimeEntry{
-				Project:  input.Project,
-				Category: input.Category,
-				Start:    now,
-			}
-			return tx.Create(&newEntry).Error
+			return tx.Create(&TimeEntry{Project: input.Project, Category: input.Category, Start: now}).Error
 		})
-
 		if err != nil {
-			c.JSON(500, gin.H{"error": "Database transaction failed"})
+			c.JSON(500, gin.H{"error": err.Error()})
 			return
 		}
+		c.JSON(200, gin.H{"status": "success"})
+	})
 
-		c.JSON(200, gin.H{"status": "success", "active_project": input.Project})
+	// HISTORY ROUTE (Make sure this is inside SetupRouter!)
+	r.GET("/api/time/history", func(c *gin.Context) {
+		var entries []TimeEntry
+		if err := db.Order("start DESC").Limit(10).Find(&entries).Error; err != nil {
+			c.JSON(500, gin.H{"error": "Database error"})
+			return
+		}
+		c.JSON(200, entries)
 	})
 
 	return r
 }
-
 // 4. THE ENTRY POINT
 // This is where the application 'boots up'.
 func main() {

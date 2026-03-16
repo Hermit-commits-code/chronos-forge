@@ -1,0 +1,16 @@
+# Binaries
+backend/backend
+main
+
+# Dependencies
+node_modules/
+vendor/
+
+# Env & Sensitive
+.env
+.env.local
+postgres-data/
+
+# IDE
+.vscode/
+.idea/

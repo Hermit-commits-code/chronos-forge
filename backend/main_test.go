@@ -47,3 +47,18 @@ func TestToggleRoute(t *testing.T) {
 	json.Unmarshal(w.Body.Bytes(), &response)
 	assert.Equal(t, "success", response["status"])
 }
+
+func TestGetHistory(t *testing.T) {
+	// Setup
+	dsn := "host=localhost user=postgres password=forge_secret dbname=chronos_forge port=5432 sslmode=disable"
+	db, _ := gorm.Open(postgres.Open(dsn), &gorm.Config{})
+	router := SetupRouter(db)
+
+	// Action: Try to GET the history
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/api/time/history", nil)
+	router.ServeHTTP(w, req)
+
+	// Assert: This SHOULD be 200 OK
+	assert.Equal(t, http.StatusOK, w.Code)
+}

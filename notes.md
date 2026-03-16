@@ -1,6 +1,39 @@
 # 🛠 CHRONOS FORGE: ARCHITECTURAL LEDGER
 *Last Updated: 2026-03-16*
 
+## 📑 TABLE OF CONTENTS
+1. [🏗 The Stack & Infrastructure](#infrastructure)
+2. [🐹 Golang: The Brain](#golang)
+3. [⚛️ Next.js: The Face](#nextjs)
+4. [🌉 The Bridge (CORS & Auth)](#bridge)
+5. [📜 Git & Versioning Strategy](#git)
+
+<a name="infrastructure"></a>
+## 1. 🏗 THE STACK & INFRASTRUCTURE
+- **Database:** PostgreSQL (The "Memory").
+- **Architecture:** Monorepo (Backend/Frontend split).
+
+<a name="golang"></a>
+## 2. 🐹 GOLANG: THE BRAIN
+- **Pointers vs. Values:** Use \`*time.Time\` for nullable DB fields.
+- **Reserved Keywords:** Escape SQL keywords with \`\\"name\\"\`.
+
+<a name="nextjs"></a>
+## 3. ⚛️ NEXT.JS: THE FACE
+- **React Compiler:** Auto-optimization for 2026 standards.
+- **Client Components:** Use \`'use client'\` for interactive UI.
+
+<a name="bridge"></a>
+## 4. 🌉 THE BRIDGE
+- **CORS:** Necessary for Port 3001 to talk to Port 8080.
+- **Preflight (OPTIONS):** Browser's "Polite Check" (Returns 204).
+
+<a name="git"></a>
+## 5. 📜 GIT & VERSIONING
+- **Main Branch:** The "Production" truth.
+- **Feature Branches (\`feat/*\`):** Isolated construction zones.
+- **Conventional Commits:** \`feat:\`, \`fix:\`, \`docs:\`, \`chore:\`.
+
 ---
 
 ## 🏗 THE STACK (Phase 1)
@@ -49,6 +82,7 @@ psql -h localhost -U postgres -d chronos_forge -c "SELECT * FROM time_entries;"
 
 # Run the TDD Suite
 go test -v ./backend/...
+```
 
 ## 🌉 THE FACE-BRAIN BRIDGE (Deep Dive)
 
@@ -76,3 +110,10 @@ go test -v ./backend/...
   - *User:* "Here it is."
   - *Middleware:* "Passport is valid. You may enter the POST function."
   - *Architect's Note:* This prevents us from having to check the "Passport" inside every single function.
+
+### 🐹 GOLANG: ADVANCED PATTERNS
+- **Trusted Proxies:**
+  - *Architect:* "Why does Gin complain about proxies?"
+  - *Go Backend:* "If you're behind a Load Balancer (like Nginx), hackers can spoof their IP. By setting `SetTrustedProxies(nil)`, I only trust the direct connection."
+- **Ordering Data:**
+  - **Concept:** We use `db.Order("start DESC")` so the most recent work appears at the top of the list.

@@ -45,51 +45,31 @@ func CORSMiddleware() gin.HandlerFunc {
 // 3. THE ROUTER ENGINE (LOGIC)
 // We separate the 'Routes' from the 'Server Start' so we can test it later.
 func SetupRouter(db *gorm.DB) *gin.Engine {
-	// Initialize Gin with default middleware (Logger and Recovery)
+	// 1. FIX WARNING: Set to ReleaseMode for production (optional, but cleans logs)
+	// gin.SetMode(gin.ReleaseMode) 
+
 	r := gin.Default()
+	
+	// 2. FIX WARNING: Tell Gin not to trust all proxies (Security measure)
+	r.SetTrustedProxies(nil) 
 
 	r.Use(CORSMiddleware())
 
-	// ROUTE: POST /api/time/toggle
-	r.POST("/api/time/toggle", func(c *gin.Context) {
-		var input struct {
-			Project  string `json:"project"`
-			Category string `json:"category"`
-		}
+	// EXISTING TOGGLE ROUTE...
+	r.POST("/api/time/toggle", func(c *gin.Context) { /* ... */ })
 
-		// Bind the incoming JSON from the Mobile App/Frontend to our 'input' struct
-		if err := c.ShouldBindJSON(&input); err != nil {
-			c.JSON(400, gin.H{"error": "Invalid input data"})
+	// NEW: THE HISTORY ROUTE
+	r.GET("/api/time/history", func(c *gin.Context) {
+		var entries []TimeEntry
+		
+		// Logic: Find all entries, ordered by most recent start time
+		// We limit to 10 so we don't overwhelm the "Face"
+		if err := db.Order("start DESC").Limit(10).Find(&entries).Error; err != nil {
+			c.JSON(500, gin.H{"error": "Failed to fetch history"})
 			return
 		}
 
-		now := time.Now()
-
-		// THE ATOMIC TRANSACTION
-		// We use a transaction to ensure 'Stop' and 'Start' happen together or not at all.
-		err := db.Transaction(func(tx *gorm.DB) error {
-			
-			// FIX: We use "\"end\"" to escape the Postgres reserved keyword.
-			// This tells Postgres: "Update the column named 'end', don't end the query!"
-			if err := tx.Model(&TimeEntry{}).Where("\"end\" IS NULL").Update("end", now).Error; err != nil {
-				return err
-			}
-
-			// Create the new entry for the project you just clicked.
-			newEntry := TimeEntry{
-				Project:  input.Project,
-				Category: input.Category,
-				Start:    now,
-			}
-			return tx.Create(&newEntry).Error
-		})
-
-		if err != nil {
-			c.JSON(500, gin.H{"error": "Database transaction failed"})
-			return
-		}
-
-		c.JSON(200, gin.H{"status": "success", "active_project": input.Project})
+		c.JSON(200, entries)
 	})
 
 	return r

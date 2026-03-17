@@ -49,7 +49,7 @@ psql -h localhost -U postgres -d chronos_forge -c "SELECT * FROM time_entries;"
 
 # Run the TDD Suite
 go test -v ./backend/...
-
+```
 ## 🌉 THE FACE-BRAIN BRIDGE (Deep Dive)
 
 ### 1. The Preflight (OPTIONS)
@@ -102,3 +102,33 @@ go test -v ./backend/...
 - **UI:** Real-time refresh and conditional styling (Active Pulse) are working.
 - **Tests:** Vitest and Go test suites are Green.
 - **Stability:** CORS and JSON Stream errors have been fully documented and patched.
+
+### 🛠️ GIT OPS: THE BRANCH DRIFT
+- **Scenario:** Development happened on 'main' instead of a feature branch.
+- **Solution:** Committed directly to 'main' using Conventional Commits to preserve 'Green' state.
+- **Lesson:** Always check `git branch` before striking the anvil, but don't panic if you're on 'main'—just commit and move forward.
+
+## 🔐 PHASE 2: SECURITY & IDENTITY
+### 1. The User Model
+- **Concept:** Information Hiding. We use the `json:"-"` tag to ensure sensitive data (passwords) never reaches the browser.
+- **Relational Data:** Every `TimeEntry` now belongs to a `User` via a `UserID` foreign key.
+
+### 🔑 THE BCRYPT STANDARD
+- **Hiding vs. Hashing:** `json:"-"` hides the data from the UI. Bcrypt transforms the data so even the Database Admin can't read the actual password.
+- **Salt:** Bcrypt automatically adds a "salt" (random data) to the hash, ensuring that two users with the same password will have completely different hashes.
+
+### 🏗️ PRODUCTION READINESS: ENV VARIABLES
+- **Security:** Secrets are no longer hardcoded in `main.go`.
+- **Tooling:** Using `godotenv` for local development parity with production environments.
+- **Safety:** `.env` added to `.gitignore` to prevent credential leaks.
+
+### ⏹️ UI FEATURE: THE KILL SWITCH
+- **Logic:** Updated Go backend to interpret "STOP" as a termination command.
+- **Ternary UI:** Frontend now swaps "Clock In" for "Clock Out" based on the active project state.
+- **Database:** No new rows are created when clocking out, keeping history clean.
+
+### 🏁 PHASE 2 COMPLETE: THE SECURE FORGE
+- **Authentication:** Bcrypt hashing and JWT token issuance are live.
+- **Middleware:** The backend now guards the 'Toggle' and 'History' routes.
+- **Persistence:** JWT is stored in localStorage for seamless sessions.
+- **UI/UX:** Login overlay implemented with branded input styling.

@@ -3,23 +3,33 @@
 package main
 
 import (
-	"log"  // Standard library for printing to the terminal
+	"log" // Standard library for printing to the terminal
+	"os"
 	"time" // Standard library for handling dates and durations
 
 	"github.com/gin-gonic/gin" // The Web Framework (Fast & Lightweight)
-	"gorm.io/driver/postgres"  // The Postgres-specific 'Translator'
-	"gorm.io/gorm"             // The Object Relational Mapper (ORM)
+	"github.com/golang-jwt/jwt/v5"
+	"github.com/joho/godotenv"
+	"golang.org/x/crypto/bcrypt"
+	"gorm.io/driver/postgres" // The Postgres-specific 'Translator'
+	"gorm.io/gorm"            // The Object Relational Mapper (ORM)
 )
+
+type User struct{
+				ID 				uint		`gorm:"primaryKey" json:"id"`
+				Email			string	`gorm:"unique;not null" json:"email"`
+				Password	string	`gorm:"not null" json:"-"` // the "-" means NEVER send to JSON
+				Entries		[]TimeEntry	`json:"entries"`		  // One user has many TimeEntries.
+}
 
 // 2. THE DATA BLUEPRINT (STRUCT)
 // This defines what a 'Time Entry' looks like in Go AND in the Database.
 type TimeEntry struct {
 	ID        uint       `gorm:"primaryKey" json:"id"`
+	UserID		uint			 `json:"user_id"`
 	Project   string     `gorm:"not null" json:"project"`
 	Category  string     `json:"category"`
 	Start     time.Time  `gorm:"not null" json:"start"`
-	// The '*' makes this a POINTER. 
-	// This allows the database to store a 'NULL' value for active tasks.
 	End       *time.Time `json:"end"` 
 	CreatedAt time.Time  `json:"created_at"`
 }
@@ -42,67 +52,196 @@ func CORSMiddleware() gin.HandlerFunc {
 	}
 }
 
+func GenerateJWT(userID uint) (string, error) {
+    // Fetch secret from env at runtime
+    secret := []byte(os.Getenv("JWT_SECRET"))
+    
+    claims := jwt.MapClaims{
+        "user_id": userID,
+        "exp":     time.Now().Add(time.Hour * 24).Unix(),
+    }
+
+    token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+    return token.SignedString(secret)
+}
+
+func AuthMiddleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		// 1. Get the token from the "Authorization" header
+		tokenString := c.GetHeader("Authorization")
+		if tokenString == "" {
+			c.JSON(401, gin.H{"error": "No passport (token) provided"})
+			c.Abort()
+			return
+		}
+
+		// 2. Parse and validate the token
+		token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
+			return []byte(os.Getenv("JWT_SECRET")), nil
+		})
+
+		if claims, ok := token.Claims.(jwt.MapClaims); ok && token.Valid {
+			// 3. Success! Store the user_id in the context for the next function to use
+			c.Set("userID", uint(claims["user_id"].(float64)))
+			c.Next()
+		} else {
+			c.JSON(401, gin.H{"error": "Invalid or expired passport", "details": err.Error()})
+			c.Abort()
+		}
+	}
+}
+
 // 3. THE ROUTER ENGINE (LOGIC)
 func SetupRouter(db *gorm.DB) *gin.Engine {
-  r := gin.Default()
-  r.SetTrustedProxies(nil)
-  r.Use(CORSMiddleware())
+	r := gin.Default()
+	r.SetTrustedProxies(nil)
+	r.Use(CORSMiddleware())
 
-  // ROUTE: POST /api/time/toggle
-  r.POST("/api/time/toggle", func(c *gin.Context) {
-    // 1. Corrected Struct Definition
-    var input struct {
-      Project  string `json:"project"`
-      Category string `json:"category"`
-    }
+	// --- PUBLIC ROUTES ---
+	// Anyone can access these to join the Forge or get a Passport (JWT)
+	r.POST("/api/auth/register", func(c *gin.Context) {
+		var input struct {
+			Email    string `json:"email" binding:"required"`
+			Password string `json:"password" binding:"required"`
+		}
 
-    // 2. Bind JSON
-    if err := c.ShouldBindJSON(&input); err != nil {
-      c.JSON(400, gin.H{"error": "Invalid input data"})
-      return
-    }
+		if err := c.ShouldBindJSON(&input); err != nil {
+			c.JSON(400, gin.H{"error": "Email and password required"})
+			return
+		}
 
-    now := time.Now()
+		hashedPassword, err := bcrypt.GenerateFromPassword([]byte(input.Password), bcrypt.DefaultCost)
+		if err != nil {
+			c.JSON(500, gin.H{"error": "Failed to hash password"})
+			return
+		}
 
-    // 3. Transaction Logic
-    err := db.Transaction(func(tx *gorm.DB) error {
-      if err := tx.Model(&TimeEntry{}).Where("\"end\" IS NULL").Update("end", now).Error; err != nil {
-        return err
-      }
-      newEntry := TimeEntry{
-        Project:  input.Project,
-        Category: input.Category,
-        Start:    now,
-      }
-      return tx.Create(&newEntry).Error
-    })
+		user := User{
+			Email:    input.Email,
+			Password: string(hashedPassword),
+		}
 
-    if err != nil {
-      c.JSON(500, gin.H{"error": "Database transaction failed"})
-      return
-    }
+		if err := db.Create(&user).Error; err != nil {
+			c.JSON(400, gin.H{"error": "User already exists or database error"})
+			return
+		}
 
-    c.JSON(200, gin.H{"status": "success", "active_project": input.Project})
-  })
+		c.JSON(201, gin.H{"message": "User forged successfully"})
+	})
 
-  // ROUTE: GET /api/time/history
-  r.GET("/api/time/history", func(c *gin.Context) {
-    var entries []TimeEntry
-    if err := db.Order("start DESC").Limit(10).Find(&entries).Error; err != nil {
-      c.JSON(500, gin.H{"error": "Database error"})
-      return
-    }
-    c.JSON(200, entries)
-  })
+	r.POST("/api/auth/login", func(c *gin.Context) {
+		var input struct {
+			Email    string `json:"email" binding:"required"`
+			Password string `json:"password" binding:"required"`
+		}
+		if err := c.ShouldBindJSON(&input); err != nil {
+			c.JSON(400, gin.H{"error": "Invalid input"})
+			return
+		}
 
-  return r
+		var user User
+		if err := db.Where("email = ?", input.Email).First(&user).Error; err != nil {
+			c.JSON(401, gin.H{"error": "Invalid credentials"})
+			return
+		}
+
+		if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(input.Password)); err != nil {
+			c.JSON(401, gin.H{"error": "Invalid credentials"})
+			return
+		}
+
+		token, err := GenerateJWT(user.ID)
+		if err != nil {
+			c.JSON(500, gin.H{"error": "Could not generate passport"})
+			return
+		}
+
+		c.JSON(200, gin.H{
+			"message": "Logged in successfully",
+			"token":   token,
+		})
+	})
+
+	// --- PROTECTED ROUTES ---
+	// These routes are wrapped in AuthMiddleware. 
+	// If the user doesn't have a valid JWT, they are rejected with 401.
+	protected := r.Group("/api")
+	protected.Use(AuthMiddleware())
+	{
+		// ROUTE: POST /api/time/toggle
+		protected.POST("/time/toggle", func(c *gin.Context) {
+			// Extract the userID injected by AuthMiddleware
+			val, _ := c.Get("userID")
+			userID := val.(uint)
+
+			var input struct {
+				Project  string `json:"project"`
+				Category string `json:"category"`
+			}
+
+			if err := c.ShouldBindJSON(&input); err != nil {
+				c.JSON(400, gin.H{"error": "Invalid input data"})
+				return
+			}
+
+			now := time.Now()
+
+			err := db.Transaction(func(tx *gorm.DB) error {
+				// 1. Close existing active shift ONLY for THIS specific user
+				if err := tx.Model(&TimeEntry{}).Where("user_id = ? AND \"end\" IS NULL", userID).Update("end", now).Error; err != nil {
+					return err
+				}
+
+				// 2. If command is "STOP", exit here
+				if input.Project == "STOP" {
+					return nil
+				}
+
+				// 3. Create new entry WITH the authenticated UserID
+				newEntry := TimeEntry{
+					UserID:   userID,
+					Project:  input.Project,
+					Category: input.Category,
+					Start:    now,
+				}
+				return tx.Create(&newEntry).Error
+			})
+
+			if err != nil {
+				c.JSON(500, gin.H{"error": "Database transaction failed"})
+				return
+			}
+
+			c.JSON(200, gin.H{"status": "success", "active_project": input.Project})
+		})
+
+		// ROUTE: GET /api/time/history
+		protected.GET("/time/history", func(c *gin.Context) {
+			val, _ := c.Get("userID")
+			userID := val.(uint)
+
+			var entries []TimeEntry
+			// Only fetch shifts belonging to the logged-in user
+			if err := db.Where("user_id = ?", userID).Order("start DESC").Limit(10).Find(&entries).Error; err != nil {
+				c.JSON(500, gin.H{"error": "Database error"})
+				return
+			}
+			c.JSON(200, entries)
+		})
+	}
+
+	return r
 }
 // 4. THE ENTRY POINT
 // This is where the application 'boots up'.
 func main() {
+	// Load the .env file
+	if err:= godotenv.Load(); err != nil {
+		log.Println("No .env file found, falling back to system env.")
+	}
 	// Data Source Name (Connection String)
-	dsn := "host=localhost user=postgres password=forge_secret dbname=chronos_forge port=5432 sslmode=disable"
-	
+	dsn := os.Getenv("DB_DSN")
+
 	// Open the connection to Postgres
 	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
 	if err != nil {
@@ -110,10 +249,13 @@ func main() {
 	}
 
 	// AUTOMIGRATE: This creates or updates the 'time_entries' table automatically.
-	db.AutoMigrate(&TimeEntry{})
+	db.AutoMigrate(&User{}, &TimeEntry{})
 
+	//  Port
+	port := os.Getenv("PORT")
+	if port == "" {port = "8080"}
 	// Start the server on Port 8080
 	r := SetupRouter(db)
 	log.Println("Chronos Forge Backend is 100% Live on :8080")
-	r.Run(":8080") 
+	r.Run(":" + port)
 }

@@ -35,22 +35,27 @@ type TimeEntry struct {
   CreatedAt time.Time  `json:"created_at"`
 }
 
+type DailyAnalytics struct {
+	Date       string  `json:"date"`
+	TotalHours float64 `json:"total_hours"`
+}
+
 func CORSMiddleware() gin.HandlerFunc {
-	return func(c *gin.Context) {
-		// Allow requests from your Next.js port
-		c.Writer.Header().Set("Access-Control-Allow-Origin", "http://localhost:3000")
-		c.Writer.Header().Set("Access-Control-Allow-Credentials", "true")
-		c.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, Authorization, accept, origin, Cache-Control, X-Requested-With")
-		c.Writer.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS, GET, PUT")
+  return func(c *gin.Context) {
+    c.Writer.Header().Set("Access-Control-Allow-Origin", "http://localhost:3000")
+    c.Writer.Header().Set("Access-Control-Allow-Credentials", "true")
+    c.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, Authorization, accept, origin, Cache-Control, X-Requested-With")
+    
+    // ADD "DELETE" TO THIS LINE:
+    c.Writer.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS, GET, PUT, DELETE")
 
-		// If it's the "polite" preflight request, stop here and return 204 (No Content)
-		if c.Request.Method == "OPTIONS" {
-			c.AbortWithStatus(204)
-			return
-		}
+    if c.Request.Method == "OPTIONS" {
+      c.AbortWithStatus(204)
+      return
+    }
 
-		c.Next()
-	}
+    c.Next()
+  }
 }
 
 func GenerateJWT(userID uint) (string, error) {
@@ -301,6 +306,53 @@ func SetupRouter(db *gorm.DB) *gin.Engine {
     }
 
     c.JSON(201, gin.H{"status": "success"})
+		})
+
+		protected.GET("/weekly", func(c *gin.Context) {
+        val, _ := c.Get("userID")
+        userID := val.(uint)
+        
+        var results []DailyAnalytics
+
+        query := `
+            SELECT 
+                TO_CHAR(start, 'YYYY-MM-DD') as date, 
+                SUM(EXTRACT(EPOCH FROM (COALESCE("end", NOW()) - start)) / 3600) as total_hours
+            FROM time_entries 
+            WHERE user_id = ? AND start > NOW() - INTERVAL '7 days'
+            GROUP BY date
+            ORDER BY date ASC
+        `
+
+        // Since we are inside SetupRouter, 'db' is available here
+        if err := db.Raw(query, userID).Scan(&results).Error; err != nil {
+            c.JSON(500, gin.H{"error": "Failed to forge analytics"})
+            return
+        }
+
+        c.JSON(200, results)
+    })
+
+		protected.DELETE("/time/:id", func(c *gin.Context) {
+    val, _ := c.Get("userID")
+    userID := val.(uint)
+    entryID := c.Param("id")
+
+    // We use UserID in the Where clause for security! 
+    // This prevents User A from deleting User B's entries.
+    result := db.Where("id = ? AND user_id = ?", entryID, userID).Delete(&TimeEntry{})
+
+    if result.Error != nil {
+        c.JSON(500, gin.H{"error": "The forge failed to scrap this entry."})
+        return
+    }
+
+    if result.RowsAffected == 0 {
+        c.JSON(404, gin.H{"error": "Entry not found or unauthorized."})
+        return
+    }
+
+    c.JSON(200, gin.H{"status": "entry scrapped"})
 		})
 	}
 

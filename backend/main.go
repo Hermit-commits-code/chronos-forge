@@ -3,6 +3,7 @@
 package main
 
 import (
+	"fmt"
 	"log" // Standard library for printing to the terminal
 	"os"
 	"time" // Standard library for handling dates and durations
@@ -25,13 +26,13 @@ type User struct{
 // 2. THE DATA BLUEPRINT (STRUCT)
 // This defines what a 'Time Entry' looks like in Go AND in the Database.
 type TimeEntry struct {
-	ID        uint       `gorm:"primaryKey" json:"id"`
-	UserID		uint			 `json:"user_id"`
-	Project   string     `gorm:"not null" json:"project"`
-	Category  string     `json:"category"`
-	Start     time.Time  `gorm:"not null" json:"start"`
-	End       *time.Time `json:"end"` 
-	CreatedAt time.Time  `json:"created_at"`
+  ID        uint       `gorm:"primaryKey" json:"id"`
+  UserID    uint       `json:"user_id"`
+  Project   string     `gorm:"not null" json:"project"`
+  Category  string     `json:"category"`
+  Start     time.Time  `gorm:"not null" json:"start"`
+  End       *time.Time `json:"end"` // MUST be a pointer to allow NULL in DB
+  CreatedAt time.Time  `json:"created_at"`
 }
 
 func CORSMiddleware() gin.HandlerFunc {
@@ -227,6 +228,79 @@ func SetupRouter(db *gorm.DB) *gin.Engine {
 				return
 			}
 			c.JSON(200, entries)
+		})
+
+		// ROUTE: GET /api/time/summary
+		protected.GET("/time/summary", func(c *gin.Context) {
+			val, _ := c.Get("userID")
+			userID := val.(uint)
+
+			var entries []TimeEntry
+			// Get beginning of today (midnight)
+			now := time.Now()
+			today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+
+			// Fetch all entries from today for this user
+			if err := db.Where("user_id = ? AND start >= ?", userID, today).Find(&entries).Error; err != nil {
+					c.JSON(500, gin.H{"error": "Failed to fetch summary"})
+					return
+			}
+
+			var totalSeconds float64
+			for _, entry := range entries {
+					if entry.End != nil {
+							totalSeconds += entry.End.Sub(entry.Start).Seconds()
+					} else {
+							// If it's still active, count time from start until NOW
+							totalSeconds += time.Since(entry.Start).Seconds()
+					}
+			}
+
+			c.JSON(200, gin.H{
+					"total_seconds": totalSeconds,
+					"formatted":     fmt.Sprintf("%.1f hours", totalSeconds/3600),
+			})
+		})
+
+		// ROUTE: POST /api/time/manual
+		// ROUTE: POST /api/time/manual
+		protected.POST("/time/manual", func(c *gin.Context) {
+    val, _ := c.Get("userID")
+    userID := val.(uint)
+
+    // FIX: We define the input to match the flat JSON coming from the frontend
+    var input struct {
+        Project  string    `json:"project" binding:"required"`
+        Category string    `json:"category" binding:"required"`
+        Start    time.Time `json:"start" binding:"required"`
+        End      time.Time `json:"end" binding:"required"`
+    }
+
+    if err := c.ShouldBindJSON(&input); err != nil {
+        c.JSON(400, gin.H{"error": "Missing or invalid fields. Ensure dates are correct."})
+        return
+    }
+
+    if input.Start.After(input.End) {
+        c.JSON(400, gin.H{"error": "The start of the forge cannot be after its end."})
+        return
+    }
+
+    // FIX: We take the address of input.End to satisfy the *time.Time requirement
+    newEntry := TimeEntry{
+        UserID:   userID,
+        Project:  input.Project,
+        Category: input.Category,
+        Start:    input.Start,
+        End:      &input.End, 
+    }
+
+    if err := db.Create(&newEntry).Error; err != nil {
+        c.JSON(500, gin.H{"error": "Database rejected the manual forge."})
+        return
+    }
+
+    c.JSON(201, gin.H{"status": "success"})
 		})
 	}
 

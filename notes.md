@@ -132,3 +132,18 @@ go test -v ./backend/...
 - **Middleware:** The backend now guards the 'Toggle' and 'History' routes.
 - **Persistence:** JWT is stored in localStorage for seamless sessions.
 - **UI/UX:** Login overlay implemented with branded input styling.
+
+### 📊 PHASE 3: ANALYTICS & REFINEMENT
+- **Summary API:** Created endpoint to calculate total daily work time.
+- **Active Math:** Logic accounts for ongoing shifts in the total tally.
+- **UI:** Added Daily Total display to the main dashboard header.
+
+### 📈 PHASE 3: ANALYTICS & REFINEMENT
+- **Progress Bar:** Implemented visual goal tracking (8hr default).
+- **Manual Forge:** Added backend endpoint for retroactive time entry.
+- **Validation:** Implemented logic to prevent "Time Paradoxes" (Start > End).
+
+### 🛠️ FEATURE: RETROACTIVE FORGING
+- **UI:** Implemented manual entry form with datetime-local inputs.
+- **Conversion:** Frontend now handles ISO-8601 string conversion for Go compatibility.
+- **UX:** Form uses "Progressive Disclosure" to stay hidden until needed.

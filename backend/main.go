@@ -27,7 +27,7 @@ type TimeEntry struct {
 func CORSMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		// Allow requests from your Next.js port
-		c.Writer.Header().Set("Access-Control-Allow-Origin", "http://localhost:3001")
+		c.Writer.Header().Set("Access-Control-Allow-Origin", "http://localhost:3000")
 		c.Writer.Header().Set("Access-Control-Allow-Credentials", "true")
 		c.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, Authorization, accept, origin, Cache-Control, X-Requested-With")
 		c.Writer.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS, GET, PUT")
@@ -43,58 +43,60 @@ func CORSMiddleware() gin.HandlerFunc {
 }
 
 // 3. THE ROUTER ENGINE (LOGIC)
-// We separate the 'Routes' from the 'Server Start' so we can test it later.
 func SetupRouter(db *gorm.DB) *gin.Engine {
-	// Initialize Gin with default middleware (Logger and Recovery)
-	r := gin.Default()
+  r := gin.Default()
+  r.SetTrustedProxies(nil)
+  r.Use(CORSMiddleware())
 
-	r.Use(CORSMiddleware())
+  // ROUTE: POST /api/time/toggle
+  r.POST("/api/time/toggle", func(c *gin.Context) {
+    // 1. Corrected Struct Definition
+    var input struct {
+      Project  string `json:"project"`
+      Category string `json:"category"`
+    }
 
-	// ROUTE: POST /api/time/toggle
-	r.POST("/api/time/toggle", func(c *gin.Context) {
-		var input struct {
-			Project  string `json:"project"`
-			Category string `json:"category"`
-		}
+    // 2. Bind JSON
+    if err := c.ShouldBindJSON(&input); err != nil {
+      c.JSON(400, gin.H{"error": "Invalid input data"})
+      return
+    }
 
-		// Bind the incoming JSON from the Mobile App/Frontend to our 'input' struct
-		if err := c.ShouldBindJSON(&input); err != nil {
-			c.JSON(400, gin.H{"error": "Invalid input data"})
-			return
-		}
+    now := time.Now()
 
-		now := time.Now()
+    // 3. Transaction Logic
+    err := db.Transaction(func(tx *gorm.DB) error {
+      if err := tx.Model(&TimeEntry{}).Where("\"end\" IS NULL").Update("end", now).Error; err != nil {
+        return err
+      }
+      newEntry := TimeEntry{
+        Project:  input.Project,
+        Category: input.Category,
+        Start:    now,
+      }
+      return tx.Create(&newEntry).Error
+    })
 
-		// THE ATOMIC TRANSACTION
-		// We use a transaction to ensure 'Stop' and 'Start' happen together or not at all.
-		err := db.Transaction(func(tx *gorm.DB) error {
-			
-			// FIX: We use "\"end\"" to escape the Postgres reserved keyword.
-			// This tells Postgres: "Update the column named 'end', don't end the query!"
-			if err := tx.Model(&TimeEntry{}).Where("\"end\" IS NULL").Update("end", now).Error; err != nil {
-				return err
-			}
+    if err != nil {
+      c.JSON(500, gin.H{"error": "Database transaction failed"})
+      return
+    }
 
-			// Create the new entry for the project you just clicked.
-			newEntry := TimeEntry{
-				Project:  input.Project,
-				Category: input.Category,
-				Start:    now,
-			}
-			return tx.Create(&newEntry).Error
-		})
+    c.JSON(200, gin.H{"status": "success", "active_project": input.Project})
+  })
 
-		if err != nil {
-			c.JSON(500, gin.H{"error": "Database transaction failed"})
-			return
-		}
+  // ROUTE: GET /api/time/history
+  r.GET("/api/time/history", func(c *gin.Context) {
+    var entries []TimeEntry
+    if err := db.Order("start DESC").Limit(10).Find(&entries).Error; err != nil {
+      c.JSON(500, gin.H{"error": "Database error"})
+      return
+    }
+    c.JSON(200, entries)
+  })
 
-		c.JSON(200, gin.H{"status": "success", "active_project": input.Project})
-	})
-
-	return r
+  return r
 }
-
 // 4. THE ENTRY POINT
 // This is where the application 'boots up'.
 func main() {

@@ -76,3 +76,29 @@ go test -v ./backend/...
   - *User:* "Here it is."
   - *Middleware:* "Passport is valid. You may enter the POST function."
   - *Architect's Note:* This prevents us from having to check the "Passport" inside every single function.
+
+### 🏁 PHASE 1 COMPLETION CRITERIA
+- **Verification:** No code enters 'main' without a passing test suite in both Go and TypeScript.
+- **Documentation:** The 'Why' is logged before the 'How' is forgotten.
+- **Isolation:** Features are forged in branches and merged only when 'Green'.
+
+### 🚧 THE PORT TRAP (CORS)
+- **Problem:** TDD passes, but the browser shows 'NetworkError'.
+- **Root Cause:** The 'Access-Control-Allow-Origin' in Go must be an IDENTICAL match to the URL in the browser bar (including the Port).
+- **The Lesson:** `localhost:3000` is NOT the same as `localhost:3001`. Always check the 'Network' tab in DevTools to see which port the browser is currently using.
+
+### ✅ PHASE 1: FULL STACK SUCCESS
+- **The Brain:** Go API correctly queries Postgres and returns JSON.
+- **The Handshake:** CORS resolved for localhost:3000.
+- **The Evidence:** Manual API verification shows active projects (end: null) and closed shifts.
+
+### 🌊 THE STREAM RULE
+- **Concept:** Response bodies (like from `fetch`) are streams that can only be read ONCE.
+- **Error:** 'Body has already been consumed' means you called `.json()` or `.text()` twice on the same response object.
+- **Solution:** Always parse the body into a variable first if you need to log it and use it.
+
+### 🏆 MISSION COMPLETE: THE FOUNDATION
+- **Logic:** Atomic toggle (Stop old/Start new) is verified in DB.
+- **UI:** Real-time refresh and conditional styling (Active Pulse) are working.
+- **Tests:** Vitest and Go test suites are Green.
+- **Stability:** CORS and JSON Stream errors have been fully documented and patched.

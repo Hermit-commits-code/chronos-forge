@@ -17,7 +17,7 @@ export default function ForgeAnalytics({ dailyTotal, progress, goalHours }: Forg
       </div>
       <div className="w-full h-2 bg-zinc-900 rounded-full overflow-hidden border border-zinc-800">
         <div 
-          className="h-full bg-gradient-to-r from-orange-700 via-orange-500 to-orange-400 transition-all duration-1000 ease-out shadow-[0_0_15px_rgba(234,88,12,0.5)]"
+          className="h-full bg-linear-to-r from-orange-700 via-orange-500 to-orange-400 transition-all duration-1000 ease-out shadow-[0_0_15px_rgba(234,88,12,0.5)]"
           style={{ width: `${progress}%` }}
         />
       </div>

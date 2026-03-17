@@ -23,6 +23,17 @@ type User struct{
 				Entries		[]TimeEntry	`json:"entries"`		  // One user has many TimeEntries.
 }
 
+type Recipe struct {
+    ID       uint   `gorm:"primaryKey" json:"id"`
+    // This tells Postgres: "If the User is deleted, delete their recipes too"
+    UserID   uint   `gorm:"not null;index" json:"user_id"` 
+    User     User   `gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE;" json:"-"`
+    Name     string `gorm:"not null" json:"name"`
+    Project  string `gorm:"not null" json:"project"`
+    Category string `json:"category"`
+    Color    string `json:"color"`
+}
+
 // 2. THE DATA BLUEPRINT (STRUCT)
 // This defines what a 'Time Entry' looks like in Go AND in the Database.
 type TimeEntry struct {
@@ -35,9 +46,18 @@ type TimeEntry struct {
   CreatedAt time.Time  `json:"created_at"`
 }
 
+type DayBreakdown struct {
+	Date   string  `json:"date"`
+	Forge  float64 `json:"forge"`  // Development category
+	Admin  float64 `json:"admin"`  // Management/Admin category
+	Repair float64 `json:"repair"` // Bugs/Patch category
+}
+
 type DailyAnalytics struct {
-	Date       string  `json:"date"`
-	TotalHours float64 `json:"total_hours"`
+	Date       	string  `json:"date"`
+	ForgeHours	float64	`json:"forge_hours"`
+	AdminHours	float64	`json:"admin_hours"`	
+	TotalHours 	float64 `json:"total_hours"`
 }
 
 func CORSMiddleware() gin.HandlerFunc {
@@ -308,30 +328,53 @@ func SetupRouter(db *gorm.DB) *gin.Engine {
     c.JSON(201, gin.H{"status": "success"})
 		})
 
-		protected.GET("/weekly", func(c *gin.Context) {
-        val, _ := c.Get("userID")
-        userID := val.(uint)
+		protected.GET("/time/weekly", func(c *gin.Context) {
+    val, _ := c.Get("userID")
+    userID := val.(uint)
+
+    now := time.Now()
+    // Start 6 days ago at midnight
+    startOfPeriod := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location()).AddDate(0, 0, -6)
+
+    var entries []TimeEntry
+    // Fetch entries. Important: We include "end IS NULL" to show current active work in the chart!
+    db.Where("user_id = ? AND start >= ?", userID, startOfPeriod).Find(&entries)
+
+    chartData := make([]DayBreakdown, 7)
+    for i := 0; i < 7; i++ {
+        date := startOfPeriod.AddDate(0, 0, i)
+        chartData[i] = DayBreakdown{
+            Date: date.Format("Mon"),
+        }
+    }
+
+    for _, e := range entries {
+        dayName := e.Start.Format("Mon")
         
-        var results []DailyAnalytics
-
-        query := `
-            SELECT 
-                TO_CHAR(start, 'YYYY-MM-DD') as date, 
-                SUM(EXTRACT(EPOCH FROM (COALESCE("end", NOW()) - start)) / 3600) as total_hours
-            FROM time_entries 
-            WHERE user_id = ? AND start > NOW() - INTERVAL '7 days'
-            GROUP BY date
-            ORDER BY date ASC
-        `
-
-        // Since we are inside SetupRouter, 'db' is available here
-        if err := db.Raw(query, userID).Scan(&results).Error; err != nil {
-            c.JSON(500, gin.H{"error": "Failed to forge analytics"})
-            return
+        var duration float64
+        if e.End != nil {
+            duration = e.End.Sub(e.Start).Hours()
+        } else {
+            duration = time.Since(e.Start).Hours()
         }
 
-        c.JSON(200, results)
-    })
+        for i := range chartData {
+            if chartData[i].Date == dayName {
+                // IMPROVED MAPPING: Matches the "Recipes" and "ActionGrid" logic
+                if e.Project == "Admin Ledger" || e.Project == "Admin" {
+                    chartData[i].Admin += duration
+                } else if e.Project == "Quick Patch" || e.Category == "Bugs" {
+                    chartData[i].Repair += duration
+                } else {
+                    chartData[i].Forge += duration
+                }
+            }
+        }
+    }
+
+    c.JSON(200, chartData)
+		})
+
 
 		protected.DELETE("/time/:id", func(c *gin.Context) {
     val, _ := c.Get("userID")
@@ -354,6 +397,28 @@ func SetupRouter(db *gorm.DB) *gin.Engine {
 
     c.JSON(200, gin.H{"status": "entry scrapped"})
 		})
+
+		protected.GET("/recipes", func(c *gin.Context) {
+    val, _ := c.Get("userID")
+    userID := val.(uint)
+    var recipes []Recipe
+    db.Where("user_id = ?", userID).Find(&recipes)
+    c.JSON(200, recipes)
+		})
+
+// POST /api/recipes - Save a new template
+		protected.POST("/recipes", func(c *gin.Context) {
+    val, _ := c.Get("userID")
+    userID := val.(uint)
+    var input Recipe
+    if err := c.ShouldBindJSON(&input); err != nil {
+        c.JSON(400, gin.H{"error": "Invalid recipe data"})
+        return
+    }
+    input.UserID = userID
+    db.Create(&input)
+    c.JSON(201, input)
+		})
 	}
 
 	return r
@@ -375,7 +440,7 @@ func main() {
 	}
 
 	// AUTOMIGRATE: This creates or updates the 'time_entries' table automatically.
-	db.AutoMigrate(&User{}, &TimeEntry{})
+	db.AutoMigrate(&User{}, &TimeEntry{}, &Recipe{})
 
 	//  Port
 	port := os.Getenv("PORT")

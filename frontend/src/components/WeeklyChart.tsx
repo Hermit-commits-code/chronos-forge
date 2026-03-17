@@ -1,91 +1,59 @@
 "use client";
+import { Area, AreaChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 
-import { useEffect, useState } from "react";
-import {
-  Area,
-  AreaChart,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis
-} from "recharts";
-
-// 1. Updated Interface to include the fields we create during formatting
-interface DailyData {
-  date: string;
-  total_hours: number;
-  displayDate?: string; // Optional because we add it during map
-  hours?: number;       // Optional because we add it during map
-}
-
-export default function WeeklyChart({ token }: { token: string }) {
-  const [data, setData] = useState<DailyData[]>([]);
-
-  useEffect(() => {
-    const fetchWeekly = async () => {
-      try {
-        const res = await fetch("http://localhost:8080/api/weekly", {
-          headers: { Authorization: token },
-        });
-        const json = await res.json();
-        
-        const formatted = json.map((d: DailyData) => {
-          // Split the YYYY-MM-DD and create a date using local parts
-          const [year, month, day] = d.date.split('-').map(Number);
-          const localDate = new Date(year, month - 1, day); 
-
-          return {
-            ...d,
-            displayDate: localDate.toLocaleDateString("en-US", { month: "short", day: "numeric" }),
-            hours: parseFloat(d.total_hours.toFixed(1))
-          };
-        });
-        setData(formatted);
-      } catch (err) {
-        console.error("Failed to fetch heat map:", err);
-      }
-    };
-    if (token) fetchWeekly();
-  }, [token]);
-
+export default function WeeklyChart({ data }: { data: any[] }) {
+  if(!data || data.length === 0) return <div className="h-48 w-full animate-pulse bg-zinc-900"/>
   return (
-    <div className="h-56 w-full mt-6 bg-black/40 rounded-xl p-4 border border-zinc-800/50 shadow-inner">
-      <h3 className="text-[10px] font-bold text-zinc-500 uppercase tracking-[0.2em] mb-4">Forge Intensity</h3>
+    <div className="group relative h-48 w-full mt-8 bg-zinc-900/30 rounded-xl p-4 border border-zinc-800/50 backdrop-blur-sm">
+      <div className="flex justify-between items-center mb-4">
+        <h3 className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Velocity Breakdown</h3>
+        <div className="flex gap-3 text-[9px] uppercase tracking-tighter">
+          <span className="flex items-center gap-1.5 text-orange-500"><div className="w-1.5 h-1.5 rounded-full bg-orange-500"/> Forge</span>
+          <span className="flex items-center gap-1.5 text-purple-500"><div className="w-1.5 h-1.5 rounded-full bg-purple-500"/> Admin</span>
+          <span className="flex items-center gap-1.5 text-red-500"><div className="w-1.5 h-1.5 rounded-full bg-red-500"/> Repair</span>
+        </div>
+      </div>
+
       <ResponsiveContainer width="100%" height="100%">
-        <AreaChart data={data}>
+        <AreaChart data={data} margin={{ top: 0, right: 0, left: -20, bottom: 0 }}>
           <defs>
-            {/* The "Glow" Gradient */}
-            <linearGradient id="colorHours" x1="0" y1="0" x2="0" y2="1">
+            <linearGradient id="forgeGrad" x1="0" y1="0" x2="0" y2="1">
               <stop offset="5%" stopColor="#f97316" stopOpacity={0.3}/>
               <stop offset="95%" stopColor="#f97316" stopOpacity={0}/>
             </linearGradient>
+            <linearGradient id="adminGrad" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="5%" stopColor="#a855f7" stopOpacity={0.3}/>
+              <stop offset="95%" stopColor="#a855f7" stopOpacity={0}/>
+            </linearGradient>
           </defs>
-          <XAxis 
-            dataKey="displayDate" 
-            axisLine={false} 
-            tickLine={false} 
-            tick={{ fill: "#52525b", fontSize: 9, fontWeight: "bold" }}
-            minTickGap={10}
-          />
+          
           <Tooltip 
-            contentStyle={{ 
-              backgroundColor: "#09090b", 
-              border: "1px solid #27272a", 
-              borderRadius: "8px",
-              fontSize: "10px",
-              color: "#fff"
-            }}
-            itemStyle={{ color: "#f97316", fontWeight: "bold" }}
-            cursor={{ stroke: "#f97316", strokeWidth: 1, strokeDasharray: "4 4" }}
+            cursor={{ stroke: '#3f3f46', strokeWidth: 1 }}
+            contentStyle={{ backgroundColor: '#09090b', border: '1px solid #27272a', borderRadius: '8px', fontSize: '11px' }}
+          />
+
+          {/* Layers: Admin on bottom, then Repair, then Forge on top */}
+          <Area 
+            type="monotone" dataKey="admin" stackId="forge" 
+            stroke="#a855f7" strokeWidth={2} fill="url(#adminGrad)" 
           />
           <Area 
-            type="monotone" 
-            dataKey="hours" 
-            stroke="#f97316" 
-            strokeWidth={3}
-            fillOpacity={1} 
-            fill="url(#colorHours)" 
-            animationDuration={1500}
+            type="monotone" dataKey="repair" stackId="forge" 
+            stroke="#ef4444" strokeWidth={2} fill="#ef444410" 
           />
+          <Area 
+            type="monotone" dataKey="forge" stackId="forge" 
+            stroke="#f97316" strokeWidth={2} fill="url(#forgeGrad)" 
+          />
+
+          <XAxis 
+            dataKey="date" 
+            axisLine={false} 
+            tickLine={false} 
+            tick={{fontSize: 10, fill: '#71717a'}} 
+            dy={10}
+          />
+          <YAxis hide domain={[0, 'auto']} />
         </AreaChart>
       </ResponsiveContainer>
     </div>
